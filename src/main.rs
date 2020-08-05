@@ -42,6 +42,19 @@ async fn exec_script(state: Arc<State>, script: Bytes) -> Result<impl warp::Repl
     let context = v8::Context::new(scope);
     let scope = &mut v8::ContextScope::new(scope, context);
 
+    let my_fn = v8::FunctionTemplate::new(scope, |
+          scope: &mut v8::HandleScope,
+            _: v8::FunctionCallbackArguments,
+              mut rv: v8::ReturnValue,
+              | {
+          rv.set(v8::Integer::new(scope, 42).into());
+    });
+    let my_fn_name = v8::String::new(scope, "rpb").unwrap();
+    let my_fn_impl = my_fn.get_function(scope).unwrap();
+
+    let global = context.global(scope);
+    global.set(scope, my_fn_name.into(), my_fn_impl.into());
+
     let code = std::str::from_utf8(script.as_ref()).unwrap();
     let code = v8::String::new(scope, &code).unwrap();
     println!("javascript code: {}", code.to_rust_string_lossy(scope));
