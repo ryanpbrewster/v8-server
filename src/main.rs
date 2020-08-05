@@ -1,27 +1,5 @@
 use rusty_v8 as v8;
 
-/*
-fn main() {
-    let platform = v8::new_default_platform().unwrap();
-    v8::V8::initialize_platform(platform);
-    v8::V8::initialize();
-
-    let isolate = &mut v8::Isolate::new(Default::default());
-
-    let scope = &mut v8::HandleScope::new(isolate);
-    let context = v8::Context::new(scope);
-    let scope = &mut v8::ContextScope::new(scope, context);
-
-    let code = v8::String::new(scope, "'Hello' + ' World!'").unwrap();
-    println!("javascript code: {}", code.to_rust_string_lossy(scope));
-
-    let script = v8::Script::compile(scope, code, None).unwrap();
-    let result = script.run(scope).unwrap();
-    let result = result.to_string(scope).unwrap();
-    println!("result: {}", result.to_rust_string_lossy(scope));
-}
-*/
-
 use bytes::Bytes;
 use log::info;
 use serde::Serialize;
@@ -38,6 +16,10 @@ async fn main() {
     let seed = opts.seed;
     info!("starting with seed {}", seed);
 
+    let platform = v8::new_default_platform().unwrap();
+    v8::V8::initialize_platform(platform);
+    v8::V8::initialize();
+
     let state = Arc::new(State { seed: opts.seed });
 
     let hello = warp::get().and(warp::path::end()).map(|| "ok");
@@ -53,11 +35,23 @@ async fn main() {
     warp::serve(routes).run(([127, 0, 0, 1], 9000)).await;
 }
 
-async fn exec_script(
-    state: Arc<State>,
-    script: Bytes,
-) -> Result<impl warp::Reply, Infallible> {
-    Ok(format!("{}", script.len()))
+async fn exec_script(state: Arc<State>, script: Bytes) -> Result<impl warp::Reply, Infallible> {
+    let isolate = &mut v8::Isolate::new(Default::default());
+
+    let scope = &mut v8::HandleScope::new(isolate);
+    let context = v8::Context::new(scope);
+    let scope = &mut v8::ContextScope::new(scope, context);
+
+    let code = std::str::from_utf8(script.as_ref()).unwrap();
+    let code = v8::String::new(scope, &code).unwrap();
+    println!("javascript code: {}", code.to_rust_string_lossy(scope));
+
+    let script = v8::Script::compile(scope, code, None).unwrap();
+    let result = script.run(scope).unwrap();
+    let result = result.to_string(scope).unwrap();
+    let result = result.to_rust_string_lossy(scope);
+    println!("result: {}", result);
+    Ok(result)
 }
 
 #[derive(StructOpt)]
