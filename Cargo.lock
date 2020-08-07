@@ -1498,6 +1498,7 @@ version = "0.1.0"
 dependencies = [
  "bytes",
  "env_logger",
+ "lazy_static",
  "log 0.4.11",
  "rusty_v8",
  "serde",

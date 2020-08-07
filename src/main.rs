@@ -1,7 +1,9 @@
 use rusty_v8 as v8;
 
 use bytes::Bytes;
+use lazy_static::lazy_static;
 use log::info;
+use std::collections::BTreeSet;
 use std::convert::Infallible;
 use std::sync::atomic::{AtomicI32, Ordering};
 use structopt::StructOpt;
@@ -29,6 +31,9 @@ async fn main() {
 }
 
 static COUNTER: AtomicI32 = AtomicI32::new(0);
+lazy_static! {
+    static ref FS: BTreeSet<String> = vec!["a", "b", "c"].into_iter().map(String::from).collect();
+}
 async fn exec_script(script: Bytes) -> Result<impl warp::Reply, Infallible> {
     let isolate = &mut v8::Isolate::new(Default::default());
 
@@ -43,11 +48,22 @@ async fn exec_script(script: Bytes) -> Result<impl warp::Reply, Infallible> {
             rv.set(v8::Integer::new(scope, count).into());
         },
     );
-    let my_fn_name = v8::String::new(scope, "rpb").unwrap();
+    let my_fn_name = v8::String::new(scope, "counter").unwrap();
     let my_fn_impl = my_fn.get_function(scope).unwrap();
+
+    let fs_fn = v8::FunctionTemplate::new(
+        scope,
+        |scope: &mut v8::HandleScope, _: v8::FunctionCallbackArguments, mut rv: v8::ReturnValue| {
+            let count = FS.len() as i32;
+            rv.set(v8::Integer::new(scope, count).into());
+        },
+    );
+    let fs_fn_name = v8::String::new(scope, "fs").unwrap();
+    let fs_fn_impl = fs_fn.get_function(scope).unwrap();
 
     let global = context.global(scope);
     global.set(scope, my_fn_name.into(), my_fn_impl.into());
+    global.set(scope, fs_fn_name.into(), fs_fn_impl.into());
 
     let code = std::str::from_utf8(script.as_ref()).unwrap();
     let code = v8::String::new(scope, &code).unwrap();
