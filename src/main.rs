@@ -2,9 +2,8 @@ use rusty_v8 as v8;
 
 use bytes::Bytes;
 use log::info;
-use serde::Serialize;
 use std::convert::Infallible;
-use std::sync::Arc;
+use std::sync::atomic::{AtomicI32, Ordering};
 use structopt::StructOpt;
 use warp::Filter;
 
@@ -20,35 +19,30 @@ async fn main() {
     v8::V8::initialize_platform(platform);
     v8::V8::initialize();
 
-    let state = Arc::new(State { seed: opts.seed });
-
     let hello = warp::get().and(warp::path::end()).map(|| "ok");
-    let exec = {
-        let state = state.clone();
-        warp::any()
-            .map(move || state.clone())
-            .and(warp::post())
-            .and(warp::body::bytes())
-            .and_then(exec_script)
-    };
+    let exec = warp::any()
+        .and(warp::post())
+        .and(warp::body::bytes())
+        .and_then(exec_script);
     let routes = hello.or(exec);
     warp::serve(routes).run(([127, 0, 0, 1], 9000)).await;
 }
 
-async fn exec_script(state: Arc<State>, script: Bytes) -> Result<impl warp::Reply, Infallible> {
+static COUNTER: AtomicI32 = AtomicI32::new(0);
+async fn exec_script(script: Bytes) -> Result<impl warp::Reply, Infallible> {
     let isolate = &mut v8::Isolate::new(Default::default());
 
     let scope = &mut v8::HandleScope::new(isolate);
     let context = v8::Context::new(scope);
     let scope = &mut v8::ContextScope::new(scope, context);
 
-    let my_fn = v8::FunctionTemplate::new(scope, |
-          scope: &mut v8::HandleScope,
-            _: v8::FunctionCallbackArguments,
-              mut rv: v8::ReturnValue,
-              | {
-          rv.set(v8::Integer::new(scope, 42).into());
-    });
+    let my_fn = v8::FunctionTemplate::new(
+        scope,
+        |scope: &mut v8::HandleScope, _: v8::FunctionCallbackArguments, mut rv: v8::ReturnValue| {
+            let count = COUNTER.fetch_add(1, Ordering::SeqCst);
+            rv.set(v8::Integer::new(scope, count).into());
+        },
+    );
     let my_fn_name = v8::String::new(scope, "rpb").unwrap();
     let my_fn_impl = my_fn.get_function(scope).unwrap();
 
@@ -70,9 +64,5 @@ async fn exec_script(state: Arc<State>, script: Bytes) -> Result<impl warp::Repl
 #[derive(StructOpt)]
 struct Opts {
     #[structopt(long, default_value = "0")]
-    seed: u64,
-}
-
-struct State {
     seed: u64,
 }
