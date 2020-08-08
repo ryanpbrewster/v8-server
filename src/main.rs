@@ -32,7 +32,10 @@ async fn main() {
 
 static COUNTER: AtomicI32 = AtomicI32::new(0);
 lazy_static! {
-    static ref KV: BTreeMap<String, String> = vec![("a", "Hello"), ("b", "Goodbye")].into_iter().map(|(k, v)| (k.to_owned(), v.to_owned())).collect();
+    static ref KV: BTreeMap<String, String> = vec![("a", "Hello"), ("b", "Goodbye")]
+        .into_iter()
+        .map(|(k, v)| (k.to_owned(), v.to_owned()))
+        .collect();
 }
 async fn exec_script(script: Bytes) -> Result<impl warp::Reply, Infallible> {
     let isolate = &mut v8::Isolate::new(Default::default());
@@ -41,30 +44,49 @@ async fn exec_script(script: Bytes) -> Result<impl warp::Reply, Infallible> {
     let context = v8::Context::new(scope);
     let scope = &mut v8::ContextScope::new(scope, context);
 
-    let my_fn = v8::FunctionTemplate::new(
+    let api_template = v8::ObjectTemplate::new(scope);
+
+    let get_fn = v8::FunctionTemplate::new(
         scope,
-        |scope: &mut v8::HandleScope, _: v8::FunctionCallbackArguments, mut rv: v8::ReturnValue| {
-            let count = COUNTER.fetch_add(1, Ordering::SeqCst);
-            rv.set(v8::Integer::new(scope, count).into());
+        |scope: &mut v8::HandleScope,
+         args: v8::FunctionCallbackArguments,
+         mut rv: v8::ReturnValue| {
+            let key = args
+                .get(0)
+                .to_string(scope)
+                .unwrap()
+                .to_rust_string_lossy(scope);
+            let default = String::new();
+            let value = KV.get(&key).unwrap_or(&default);
+            rv.set(v8::String::new(scope, value).unwrap().into());
         },
     );
-    let my_fn_name = v8::String::new(scope, "counter").unwrap();
-    let my_fn_impl = my_fn.get_function(scope).unwrap();
+    let get_fn_name = v8::String::new(scope, "get").unwrap();
+    api_template.set(get_fn_name.into(), get_fn.into());
 
-    let fs_fn = v8::FunctionTemplate::new(
+    let set_fn = v8::FunctionTemplate::new(
         scope,
-        |scope: &mut v8::HandleScope, args: v8::FunctionCallbackArguments, mut rv: v8::ReturnValue| {
-            println!("{:?}", args.get(0).to_string(scope).unwrap().to_rust_string_lossy(scope));
+        |scope: &mut v8::HandleScope,
+         args: v8::FunctionCallbackArguments,
+         mut rv: v8::ReturnValue| {
+            println!(
+                "{:?}",
+                args.get(0)
+                    .to_string(scope)
+                    .unwrap()
+                    .to_rust_string_lossy(scope)
+            );
             let a: &String = KV.keys().next().unwrap();
             rv.set(v8::String::new(scope, a).unwrap().into());
         },
     );
-    let fs_fn_name = v8::String::new(scope, "fs").unwrap();
-    let fs_fn_impl = fs_fn.get_function(scope).unwrap();
+    let set_fn_name = v8::String::new(scope, "set").unwrap();
+    api_template.set(set_fn_name.into(), set_fn.into());
 
     let global = context.global(scope);
-    global.set(scope, my_fn_name.into(), my_fn_impl.into());
-    global.set(scope, fs_fn_name.into(), fs_fn_impl.into());
+    let api_instance = api_template.new_instance(scope).unwrap();
+    let api_name = v8::String::new(scope, "api").unwrap();
+    global.set(scope, api_name.into(), api_instance.into());
 
     let code = std::str::from_utf8(script.as_ref()).unwrap();
     let code = v8::String::new(scope, &code).unwrap();
