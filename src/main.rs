@@ -3,7 +3,7 @@ use rusty_v8 as v8;
 use bytes::Bytes;
 use lazy_static::lazy_static;
 use log::info;
-use std::collections::BTreeSet;
+use std::collections::BTreeMap;
 use std::convert::Infallible;
 use std::sync::atomic::{AtomicI32, Ordering};
 use structopt::StructOpt;
@@ -32,7 +32,7 @@ async fn main() {
 
 static COUNTER: AtomicI32 = AtomicI32::new(0);
 lazy_static! {
-    static ref FS: BTreeSet<String> = vec!["a", "b", "c"].into_iter().map(String::from).collect();
+    static ref KV: BTreeMap<String, String> = vec![("a", "Hello"), ("b", "Goodbye")].into_iter().map(|(k, v)| (k.to_owned(), v.to_owned())).collect();
 }
 async fn exec_script(script: Bytes) -> Result<impl warp::Reply, Infallible> {
     let isolate = &mut v8::Isolate::new(Default::default());
@@ -53,8 +53,9 @@ async fn exec_script(script: Bytes) -> Result<impl warp::Reply, Infallible> {
 
     let fs_fn = v8::FunctionTemplate::new(
         scope,
-        |scope: &mut v8::HandleScope, _: v8::FunctionCallbackArguments, mut rv: v8::ReturnValue| {
-            let a: &String = FS.iter().next().unwrap();
+        |scope: &mut v8::HandleScope, args: v8::FunctionCallbackArguments, mut rv: v8::ReturnValue| {
+            println!("{:?}", args.get(0).to_string(scope).unwrap().to_rust_string_lossy(scope));
+            let a: &String = KV.keys().next().unwrap();
             rv.set(v8::String::new(scope, a).unwrap().into());
         },
     );
