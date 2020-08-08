@@ -2,7 +2,7 @@ use rusty_v8 as v8;
 
 use bytes::Bytes;
 use lazy_static::lazy_static;
-use log::info;
+use log::trace;
 use std::collections::BTreeMap;
 use std::convert::Infallible;
 use std::sync::Mutex;
@@ -12,7 +12,7 @@ use warp::Filter;
 #[tokio::main]
 async fn main() {
     env_logger::init();
-    let opts = Opts::from_args();
+    let _opts = Opts::from_args();
 
     let platform = v8::new_default_platform().unwrap();
     v8::V8::initialize_platform(platform);
@@ -87,17 +87,14 @@ async fn exec_script(script: Bytes) -> Result<impl warp::Reply, Infallible> {
 
     let code = std::str::from_utf8(script.as_ref()).unwrap();
     let code = v8::String::new(scope, &code).unwrap();
-    println!("javascript code: {}", code.to_rust_string_lossy(scope));
+    trace!("javascript code: {}", code.to_rust_string_lossy(scope));
 
     let script = v8::Script::compile(scope, code, None).unwrap();
     let output = script.run(scope).unwrap();
     let result = output.to_string(scope).unwrap().to_rust_string_lossy(scope);
-    println!("result: {}", result);
+    trace!("result: {}", result);
     Ok(result)
 }
 
 #[derive(StructOpt)]
-struct Opts {
-    #[structopt(long, default_value = "0")]
-    seed: u64,
-}
+struct Opts {}
