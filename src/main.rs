@@ -54,8 +54,8 @@ async fn exec_script(script: Bytes) -> Result<impl warp::Reply, Infallible> {
     let fs_fn = v8::FunctionTemplate::new(
         scope,
         |scope: &mut v8::HandleScope, _: v8::FunctionCallbackArguments, mut rv: v8::ReturnValue| {
-            let count = FS.len() as i32;
-            rv.set(v8::Integer::new(scope, count).into());
+            let a: &String = FS.iter().next().unwrap();
+            rv.set(v8::String::new(scope, a).unwrap().into());
         },
     );
     let fs_fn_name = v8::String::new(scope, "fs").unwrap();

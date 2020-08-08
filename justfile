@@ -1,5 +1,5 @@
 build:
-  cargo build --release
+  cargo build
 
 serve: build
-  RUST_LOG=info ./target/release/v8-example
+  RUST_LOG=info ./target/debug/v8-example
