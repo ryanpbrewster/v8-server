@@ -5,7 +5,7 @@ use lazy_static::lazy_static;
 use log::{trace, warn};
 use std::collections::BTreeMap;
 use std::convert::Infallible;
-use std::sync::Mutex;
+use std::{ops::Bound, sync::Mutex};
 use structopt::StructOpt;
 use warp::Filter;
 
@@ -40,6 +40,30 @@ async fn exec_script(script: Bytes) -> Result<impl warp::Reply, Infallible> {
         let scope = &mut v8::ContextScope::new(scope, context);
 
         let api_template = v8::ObjectTemplate::new(scope);
+
+        let next_fn = v8::FunctionTemplate::new(
+            scope,
+            |scope: &mut v8::HandleScope,
+             args: v8::FunctionCallbackArguments,
+             mut rv: v8::ReturnValue| {
+                let arg = args.get(0);
+                let key = if arg.is_null_or_undefined() {
+                    String::new()
+                } else {
+                    arg.to_string(scope).unwrap().to_rust_string_lossy(scope)
+                };
+                if let Some((next_key, _)) = KV
+                    .lock()
+                    .unwrap()
+                    .range((Bound::Excluded(key), Bound::Unbounded))
+                    .next()
+                {
+                    rv.set(v8::String::new(scope, next_key).unwrap().into());
+                }
+            },
+        );
+        let next_fn_name = v8::String::new(scope, "next").unwrap();
+        api_template.set(next_fn_name.into(), next_fn.into());
 
         let get_fn = v8::FunctionTemplate::new(
             scope,
@@ -92,7 +116,6 @@ async fn exec_script(script: Bytes) -> Result<impl warp::Reply, Infallible> {
         trace!("javascript code: {}", code.to_rust_string_lossy(scope));
 
         tokio::spawn(async move {
-            trace!("i'm in another thread!");
             tokio::time::delay_for(std::time::Duration::from_millis(50)).await;
             if handle.terminate_execution() {
                 warn!("killing script after 50ms");
