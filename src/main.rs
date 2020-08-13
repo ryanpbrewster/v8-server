@@ -6,7 +6,7 @@ use log::{info, trace, warn};
 use std::collections::BTreeMap;
 use std::convert::Infallible;
 use std::sync::atomic::{AtomicUsize, Ordering};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 use std::{ops::Bound, sync::Mutex};
 use structopt::StructOpt;
 use warp::Filter;
@@ -45,9 +45,7 @@ lazy_static! {
     static ref KV: Mutex<BTreeMap<String, String>> = Mutex::new(BTreeMap::new());
 }
 async fn exec_script(script: Bytes) -> Result<impl warp::Reply, Infallible> {
-    trace!("routed");
     Ok(tokio::task::spawn_blocking(move || {
-        trace!("spawned");
         let isolate = &mut v8::Isolate::new(Default::default());
         let handle = isolate.thread_safe_handle();
 
@@ -129,19 +127,19 @@ async fn exec_script(script: Bytes) -> Result<impl warp::Reply, Infallible> {
 
         let code = std::str::from_utf8(script.as_ref()).unwrap();
         let code = v8::String::new(scope, &code).unwrap();
-        trace!("javascript code: {}", code.to_rust_string_lossy(scope));
-
+        let script = v8::Script::compile(scope, code, None).unwrap();
+        let start = Instant::now();
         tokio::spawn(async move {
             tokio::time::delay_for(std::time::Duration::from_millis(50)).await;
             if handle.terminate_execution() {
                 warn!("killing script after 50ms");
             }
         });
-        let script = v8::Script::compile(scope, code, None).unwrap();
+
         let output = script.run(scope).unwrap();
         let result = output.to_string(scope).unwrap().to_rust_string_lossy(scope);
         QPS.fetch_add(1, Ordering::SeqCst);
-        trace!("result: {}", result);
+        trace!("[{:?}] result: {}", start.elapsed(), result);
         result
     })
     .await
